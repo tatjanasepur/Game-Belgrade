@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="sr">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"/>
+  <title>Belgrade Life v2 — Map & GSP</title>
+  <link rel="stylesheet" href="styles.css"/>
+  <script defer src="https://unpkg.com/phaser@3.70.0/dist/phaser.js"></script>
+  <script defer src="game.js"></script>
+</head>
+<body>
+  <div id="overlay" class="overlay">
+    <div class="panel" id="menu">
+      <h1>Belgrade Life v2</h1>
+      <p class="sub">Dedinje • Dorćol • Vračar • Ada</p>
+      <div class="row">
+        <label>Pol:</label>
+        <select id="gender">
+          <option value="z">Žensko</option>
+          <option value="m">Muško</option>
+        </select>
+      </div>
+      <div class="row">
+        <label>Outfit boja:</label>
+        <input id="color" type="color" value="#ff6bd6" />
+      </div>
+      <button id="startBtn">Start</button>
+      <p class="hint">WASD hodanje • E interakcija • I inventar • T telefon • Space sprint</p>
+    </div>
+
+    <div class="panel hidden" id="shopUI">
+      <h2>SuperMarkt</h2>
+      <div id="shopList" class="list"></div>
+      <div class="row between">
+        <div>Novac: <b id="cashLabel"></b> RSD</div>
+        <button id="buyBtn">Kupi</button>
+      </div>
+      <button class="link" id="closeShop">Zatvori</button>
+    </div>
+
+    <div class="panel hidden" id="invUI">
+      <h2>Inventar</h2>
+      <div id="invList" class="list"></div>
+      <div class="row between">
+        <div>Kese: <b id="bagsLabel"></b> (max 12kg)</div>
+        <button id="toFridgeBtn">U frižider</button>
+      </div>
+      <button class="link" id="closeInv">Zatvori</button>
+    </div>
+
+    <div class="panel hidden" id="phoneUI">
+      <h2>Telefon</h2>
+      <div class="tabs">
+        <button data-tab="map" class="active">Mapa</button>
+        <button data-tab="tasks">Zadaci</button>
+      </div>
+      <div id="tabMap">
+        <div class="map">
+          <div class="mitem">Dedinje (Kuća)</div>
+          <div class="mitem">Dorćol</div>
+          <div class="mitem">Vračar</div>
+          <div class="mitem">Ada</div>
+        </div>
+        <p class="hint">Do kvartova stižeš GSP-om sa ulice (E na stajalištu).</p>
+      </div>
+      <div id="tabTasks" class="hidden">
+        <ul id="taskList"></ul>
+      </div>
+      <button class="link" id="closePhone">Zatvori</button>
+    </div>
+
+    <div class="panel hidden" id="baristaUI">
+      <h2>Starbrews — Barista</h2>
+      <p id="orderText"></p>
+      <div class="row">
+        <button class="mini" data-step="espresso">Espresso</button>
+        <button class="mini" data-step="mleko">Upari mleko</button>
+        <button class="mini" data-step="preliv">Preliv</button>
+        <button class="mini" data-step="serviraj">Serviraj</button>
+      </div>
+      <div class="bar"><div id="timerFill" class="fill"></div></div>
+      <div id="baristaMsg" class="msg"></div>
+      <button class="link" id="quitBarista">Završi smenu</button>
+    </div>
+  </div>
+
+  <div class="hud">
+    <span id="hudLoc">Lokacija</span>
+    <span>Dan: <b id="hudDay">1</b></span>
+    <span>Sat: <b id="hudHour">08:00</b></span>
+    <span>Ener: <b id="hudEnergy">100</b></span>
+    <span>Potr: <b id="hudNeeds">0</b></span>
+    <span>Novac: <b id="hudCash">0</b> RSD</span>
+    <span>Kese: <b id="hudBags">0</b></span>
+  </div>
+</body>
+</html>
