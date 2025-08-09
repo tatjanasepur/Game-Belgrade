@@ -1,417 +1,374 @@
-// Belgrade Life v2 — Map, GSP, NPC, Phone, Day/Night
-const CONFIG = { w: 1024, h: 576, bg: 0x0b0c12 };
+// SkyRun 3D — kratki 3D platformer za GitHub Pages (Three.js, bez eksternih assets)
+// Autor: ti + GPT-5 Thinking
+import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
 
-const state = {
-  location: 'Dedinje — Kuća',
-  gender: 'z',
-  color: 0xff6bd6,
-  energy: 100,
-  need: 0,
-  cash: 4500,
-  bagsKg: 0,
-  bagItems: [],
-  fridge: [],
-  day: 1,
-  hour: 8, // 0-23
-  minute: 0,
+let scene, camera, renderer, clock;
+let player, controls, input, level, coins = [], movingPlatforms = [];
+let grounded = false, onPlatform = null;
+let vel = new THREE.Vector3(), acc = new THREE.Vector3();
+let timeLeft = 60.0, running = false, collected = 0, win = false, lose = false;
+let sfx = {}, audioOn = true;
+
+const hud = {
+  time: document.getElementById('time'),
+  coins: document.getElementById('coins'),
+  msg: document.getElementById('msg'),
+  menu: document.getElementById('menu'),
+  start: document.getElementById('playBtn'),
+  touch: document.getElementById('touch'),
+  tLeft: document.getElementById('left'),
+  tRight: document.getElementById('right'),
+  tUp: document.getElementById('up'),
+  tJump: document.getElementById('jump'),
 };
 
-const CATALOG = [
-  {name:'Voda 1.5L', kg:1.5, price:90},
-  {name:'Hleb', kg:0.5, price:75},
-  {name:'Mleko 1L', kg:1, price:140},
-  {name:'Jaja (10)', kg:0.7, price:260},
-  {name:'Sir Gauda 250g', kg:0.25, price:360},
-  {name:'Jogurt 1L', kg:1, price:150},
-  {name:'Banane 1kg', kg:1, price:180},
-  {name:'Jabuke 1kg', kg:1, price:160},
-  {name:'Piletina 500g', kg:0.5, price:420},
-  {name:'Mleveno 500g', kg:0.5, price:520},
-  {name:'Pasta 500g', kg:0.5, price:170},
-  {name:'Pirinac 1kg', kg:1, price:240},
-  {name:'Kafa 200g', kg:0.2, price:420},
-  {name:'Caj 20', kg:0.1, price:160},
-  {name:'Cokolada 100g', kg:0.1, price:140},
-  {name:'Detergent', kg:2, price:780},
-  {name:'Sampon', kg:0.4, price:350},
-  {name:'Pasta za zube', kg:0.2, price:220},
-  {name:'Toalet papir (8)', kg:0.6, price:380},
-];
+hud.start.onclick = () => { hud.menu.classList.add('hidden'); start(); };
 
-// phone tasks
-const TASKS = [
-  {text: 'Kupi vodu i hleb', done:false},
-  {text: 'Odradi smenu u Starbrews', done:false},
-  {text: 'Spremi ručak kod kuće', done:false},
-];
+const mobile = /Mobi|Android/i.test(navigator.userAgent);
+if (mobile) hud.touch.classList.remove('hidden');
 
-let overlay, startBtn, genderSel, colorInput;
-let shopUI, shopList, cashLabel, closeShop, buyBtn;
-let invUI, invList, bagsLabel, closeInv, toFridgeBtn;
-let phoneUI, phoneTabs, tabMap, tabTasks, taskList, closePhone;
-let baristaUI, orderText, timerFill, baristaMsg, quitBarista;
-let hudLoc, hudEnergy, hudNeeds, hudCash, hudBags, hudDay, hudHour;
+// ---------- INPUT ----------
+input = {
+  left:false, right:false, up:false, down:false, jump:false, mute:false,
+};
+window.addEventListener('keydown', (e)=>{
+  if(e.key==='ArrowLeft'||e.key==='a') input.left=true;
+  if(e.key==='ArrowRight'||e.key==='d') input.right=true;
+  if(e.key==='ArrowUp'||e.key==='w') input.up=true;
+  if(e.key==='ArrowDown'||e.key==='s') input.down=true;
+  if(e.key===' '){ input.jump=true; }
+  if(e.key==='r') resetLevel();
+  if(e.key==='m'){ audioOn=!audioOn; }
+});
+window.addEventListener('keyup', (e)=>{
+  if(e.key==='ArrowLeft'||e.key==='a') input.left=false;
+  if(e.key==='ArrowRight'||e.key==='d') input.right=false;
+  if(e.key==='ArrowUp'||e.key==='w') input.up=false;
+  if(e.key==='ArrowDown'||e.key==='s') input.down=false;
+});
 
-class SceneHome extends Phaser.Scene{
-  constructor(){ super('home'); }
-  preload(){
-    const g = this.make.graphics({x:0,y:0,add:false});
-    g.fillStyle(state.color,1).fillCircle(12,12,12); g.generateTexture('player',24,24); g.clear();
-    g.fillStyle(0x2a2f48,1).fillRect(0,0,80,40); g.fillStyle(0xffffff,1).fillRect(4,4,72,32); g.generateTexture('bed',80,40); g.clear();
-    g.fillStyle(0xaad3ff,1).fillRect(0,0,28,48); g.fillRect(3,3,22,18); g.fillRect(3,27,22,18); g.generateTexture('fridge',28,48); g.clear();
-    g.fillStyle(0x8b6b4a,1).fillRect(0,0,40,50); g.generateTexture('ward',40,50); g.clear();
-    g.fillStyle(0xcccccc,1).fillRect(0,0,24,50); g.generateTexture('door',24,50); g.clear();
-  }
-  create(){
-    setDaylight(this);
-    hudSet('Dedinje — Kuća');
-    this.add.text(12,8,'Dedinje — Kuća', {font:'16px monospace', fill:'#cfe3ff'});
-    this.add.text(12,28,'Krevet  Frižider  Ormar  Vrata', {font:'12px monospace', fill:'#9fb0d7'});
-    this.add.rectangle(0,0,CONFIG.w,CONFIG.h,0x111420).setOrigin(0);
+hud.tLeft.onpointerdown = ()=> input.left=true;
+hud.tLeft.onpointerup = ()=> input.left=false;
+hud.tRight.onpointerdown = ()=> input.right=true;
+hud.tRight.onpointerup = ()=> input.right=false;
+hud.tUp.onpointerdown = ()=> input.up=true;
+hud.tUp.onpointerup = ()=> input.up=false;
+hud.tJump.onpointerdown = ()=> { input.jump=true; setTimeout(()=>input.jump=false, 80); };
 
-    this.bed = this.add.image(150,120,'bed').setInteractive();
-    this.fridge = this.add.image(320,120,'fridge').setInteractive();
-    this.ward = this.add.image(480,118,'ward').setInteractive();
-    this.door = this.add.image(980,280,'door').setInteractive();
-
-    this.player = this.physics.add.image(200,300,'player').setCollideWorldBounds(true);
-    this.keys = this.input.keyboard.addKeys('W,A,S,D,SPACE,E,I,T');
-    this.input.keyboard.on('keydown-E', ()=>{
-      if(dist(this.player,this.bed)<80) sleepAction(this);
-      else if(dist(this.player,this.fridge)<80) eatAction(this);
-      else if(dist(this.player,this.ward)<80) wardrobeAction(this);
-      else if(dist(this.player,this.door)<90) this.scene.start('street');
-    });
-    this.input.keyboard.on('keydown-I', openInventory);
-    this.input.keyboard.on('keydown-T', openPhone);
-  }
-  update(){ movePlayer(this, 230); tickTime(this); }
+// ---------- AUDIO (kratki WebAudio tonovi) ----------
+const actx = new (window.AudioContext||window.webkitAudioContext)();
+function beep(freq=600, dur=0.1, type='sine', vol=0.05){
+  if(!audioOn) return;
+  const o = actx.createOscillator(), g = actx.createGain();
+  o.type=type; o.frequency.value=freq; g.gain.value=vol;
+  o.connect(g); g.connect(actx.destination); o.start();
+  o.stop(actx.currentTime+dur);
 }
 
-class SceneStreet extends Phaser.Scene{
-  constructor(){ super('street'); }
-  preload(){
-    const g = this.make.graphics({x:0,y:0,add:false});
-    g.fillStyle(state.color,1).fillCircle(12,12,12); g.generateTexture('player',24,24); g.clear();
-    g.fillStyle(0x2f354d,1).fillRect(0,0,240,120); g.generateTexture('block',240,120); g.clear();
-    g.fillStyle(0xffcc66,1).fillRect(0,0,160,60); g.generateTexture('shop',160,60); g.clear();
-    g.fillStyle(0x9a6bff,1).fillRect(0,0,180,60); g.generateTexture('cafe',180,60); g.clear();
-    g.fillStyle(0x66d9aa,1).fillRect(0,0,160,50); g.generateTexture('bus',160,50); g.clear();
-    g.fillStyle(0xcccccc,1).fillRect(0,0,140,60); g.generateTexture('home',140,60); g.clear();
-    // npc
-    g.fillStyle(0xeeeeee,1).fillCircle(8,8,8); g.generateTexture('npc',16,16); g.clear();
+// ---------- CORE ----------
+function init(){
+  scene = new THREE.Scene();
+  scene.fog = new THREE.Fog(0x0b1020, 25, 120);
+
+  camera = new THREE.PerspectiveCamera(60, innerWidth/innerHeight, 0.1, 500);
+  camera.position.set(0, 3, 8);
+
+  renderer = new THREE.WebGLRenderer({antialias:true});
+  renderer.setSize(innerWidth, innerHeight);
+  renderer.setPixelRatio(devicePixelRatio);
+  renderer.shadowMap.enabled = true;
+  document.body.appendChild(renderer.domElement);
+
+  clock = new THREE.Clock();
+
+  // LIGHTS & SKY
+  const hemi = new THREE.HemisphereLight(0xbfdfff, 0x080820, 0.6);
+  scene.add(hemi);
+  const sun = new THREE.DirectionalLight(0xffffff, 0.9);
+  sun.position.set(8, 12, 5);
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(1024,1024);
+  scene.add(sun);
+
+  // gradient sky dome
+  const skyGeo = new THREE.SphereGeometry(200, 32, 16);
+  const skyMat = new THREE.ShaderMaterial({
+    side: THREE.BackSide,
+    uniforms: { top:{value:new THREE.Color(0x3a77ff)}, bottom:{value:new THREE.Color(0x081028)} },
+    vertexShader: `varying vec3 vPos; void main(){ vPos=position; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+    fragmentShader: `
+      varying vec3 vPos; uniform vec3 top; uniform vec3 bottom;
+      void main(){ float h = normalize(vPos).y*0.5+0.5; gl_FragColor = vec4(mix(bottom, top, h), 1.0); }
+    `
+  });
+  scene.add(new THREE.Mesh(skyGeo, skyMat));
+
+  // LEVEL
+  buildLevel();
+
+  // PLAYER (capsule-ish)
+  const body = new THREE.Mesh(
+    new THREE.CapsuleGeometry(0.35, 1.0, 6, 12),
+    new THREE.MeshStandardMaterial({color:0xff6bd6, roughness:0.7, metalness:0.1})
+  );
+  body.castShadow = true;
+  body.position.set(0, 2.5, 0);
+  player = body; scene.add(player);
+
+  // CAMERA FOLLOW OFFSET
+  camera.userData.offset = new THREE.Vector3(0, 2.2, 5.5);
+
+  // START MSG
+  hud.msg.textContent = 'Pokupi 8 novčića i uđi u portal!';
+
+  window.addEventListener('resize', onResize);
+}
+
+function onResize(){
+  camera.aspect = innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+}
+
+function buildLevel(){
+  level = new THREE.Group(); scene.add(level);
+  coins.length = 0; movingPlatforms.length = 0;
+
+  const groundMat = new THREE.MeshStandardMaterial({color:0x23314d, roughness:0.8, metalness:0.05});
+  const platMat = new THREE.MeshStandardMaterial({color:0x3ec7a1, roughness:0.6});
+  const dangerMat = new THREE.MeshStandardMaterial({color:0xd84b4b, emissive:0x220000, emissiveIntensity:0.3});
+  const coinMat = new THREE.MeshStandardMaterial({color:0xffd54a, metalness:0.7, roughness:0.25});
+  const goalMat = new THREE.MeshStandardMaterial({color:0x8a2be2, emissive:0x220044, emissiveIntensity:0.6});
+
+  // start island
+  addPlatform(new THREE.Vector3(0,0,0), new THREE.Vector3(12, 1, 12), groundMat, true);
+
+  // path of platforms
+  addPlatform(new THREE.Vector3(0,0,-10), new THREE.Vector3(6,1,6), platMat);
+  addMovingPlatform(new THREE.Vector3(0,0,-18), new THREE.Vector3(4,1,4), platMat, new THREE.Vector3(0,0,-4), new THREE.Vector3(0,0,4), 2.8);
+  addPlatform(new THREE.Vector3(5,0,-25), new THREE.Vector3(4,1,4), platMat);
+  addPlatform(new THREE.Vector3(9,0,-31), new THREE.Vector3(4,1,4), platMat);
+  addMovingPlatform(new THREE.Vector3(13,0,-37), new THREE.Vector3(4,1,4), platMat, new THREE.Vector3(-2,0,0), new THREE.Vector3(2,0,0), 2.2);
+  addPlatform(new THREE.Vector3(17,0,-43), new THREE.Vector3(4,1,4), platMat);
+
+  // wide danger gap
+  addDanger(new THREE.Vector3(10,-1,-31), new THREE.Vector3(24,0.5,18), dangerMat);
+
+  // coin trail
+  placeCoin( 0, 2.0, -10, coinMat);
+  placeCoin( 0, 3.0, -18, coinMat);
+  placeCoin( 5, 2.5, -25, coinMat);
+  placeCoin( 9, 3.2, -31, coinMat);
+  placeCoin(13, 3.0, -37, coinMat);
+  placeCoin(17, 2.8, -43, coinMat);
+  placeCoin( 4, 2.0, -6,  coinMat);
+  placeCoin(-3, 2.0, -6,  coinMat);
+
+  // goal portal
+  const ring = new THREE.Mesh(
+    new THREE.TorusGeometry(1.2, 0.25, 12, 36),
+    goalMat
+  );
+  ring.position.set(17, 2.2, -46);
+  ring.rotation.x = Math.PI/2;
+  ring.castShadow = true;
+  ring.userData.type = 'goal';
+  level.add(ring);
+
+  // soft cloud floor (just for look)
+  const cloudGeo = new THREE.PlaneGeometry(300, 300);
+  const cloudMat = new THREE.MeshBasicMaterial({color:0x0a0f26, transparent:true, opacity:0.6});
+  const clouds = new THREE.Mesh(cloudGeo, cloudMat);
+  clouds.rotation.x = -Math.PI/2;
+  clouds.position.y = -2.0;
+  scene.add(clouds);
+}
+
+function addPlatform(pos, size, mat, spawn=false){
+  const m = new THREE.Mesh(new THREE.BoxGeometry(size.x, size.y, size.z), mat);
+  m.position.copy(pos); m.castShadow = true; m.receiveShadow = true;
+  m.userData = {type:'platform', size};
+  level.add(m);
+  if(spawn) m.userData.spawn = true;
+}
+
+function addDanger(pos, size, mat){
+  const m = new THREE.Mesh(new THREE.BoxGeometry(size.x, size.y, size.z), mat);
+  m.position.copy(pos); m.receiveShadow = true;
+  m.userData = {type:'danger', size};
+  level.add(m);
+}
+
+function addMovingPlatform(pos, size, mat, deltaA, deltaB, period){
+  const m = new THREE.Mesh(new THREE.BoxGeometry(size.x, size.y, size.z), mat);
+  m.position.copy(pos); m.castShadow = true; m.receiveShadow = true;
+  m.userData = {type:'moving', size, a: pos.clone().add(deltaA), b: pos.clone().add(deltaB), t: Math.random(), period};
+  movingPlatforms.push(m);
+  level.add(m);
+}
+
+function placeCoin(x,y,z, mat){
+  const g = new THREE.CylinderGeometry(0.35,0.35,0.1,24);
+  const coin = new THREE.Mesh(g, mat); coin.rotation.x = Math.PI/2; coin.position.set(x,y,z); coin.castShadow = true;
+  coin.userData.type='coin'; coins.push(coin); level.add(coin);
+}
+
+// ---------- GAME LOOP ----------
+function start(){
+  if(!scene) init();
+  running = true; win = false; lose = false;
+  timeLeft = 60.0; collected = 0;
+  hud.time.textContent = timeLeft.toFixed(1);
+  hud.coins.textContent = `${collected}`;
+  hud.msg.textContent = 'Srećno!';
+
+  // spawn pos
+  const spawn = level.children.find(o=>o.userData && o.userData.spawn);
+  player.position.set(spawn.position.x, spawn.position.y + 1.5, spawn.position.z);
+  vel.set(0,0,0); acc.set(0,0,0);
+  animate();
+}
+
+function resetLevel(){
+  // ukloni sve i ponovo izgradi
+  scene.clear(); init();
+  start();
+}
+
+function animate(){
+  if(!running) return;
+  const dt = Math.min(0.0167, clock.getDelta()); // clamp 60 FPS step
+
+  // move moving platforms
+  for(const p of movingPlatforms){
+    p.userData.t += dt/p.userData.period;
+    const tt = (Math.sin(p.userData.t*2*Math.PI)*0.5 + 0.5); // ping-pong
+    p.position.lerpVectors(p.userData.a, p.userData.b, tt);
   }
-  create(){
-    setDaylight(this);
-    hudSet('Dedinje — Ulica');
-    this.add.text(12,8,'Dedinje — Ulica', {font:'16px monospace', fill:'#cfe3ff'});
-    this.add.text(12,28,'SuperMarkt • Starbrews • GSP • Kuća', {font:'12px monospace', fill:'#9fb0d7'});
-    this.add.rectangle(0,0,CONFIG.w,CONFIG.h,0x10131c).setOrigin(0);
 
-    for(let i=0;i<6;i++) this.add.image(140+i*150, 120, 'block');
-    this.market = this.add.image(250, 380, 'shop');
-    this.add.text(200, 410, 'SuperMarkt', {font:'13px monospace', fill:'#ffe9b0'});
-    this.cafe = this.add.image(520, 360, 'cafe');
-    this.add.text(480, 390, 'Starbrews', {font:'13px monospace', fill:'#e6d6ff'});
-    this.bus = this.add.image(680, 420, 'bus');
-    this.add.text(640, 448, 'GSP Stajalište', {font:'13px monospace', fill:'#c6ffe4'});
-    this.home = this.add.image(860, 360, 'home');
-    this.add.text(830, 390, 'Kuća', {font:'13px monospace', fill:'#e6f0ff'});
+  // player physics
+  const SPEED = 5.5;
+  const JUMP = 8.5;
+  const GRAV = -18;
 
-    this.player = this.physics.add.image(860,460,'player').setCollideWorldBounds(true);
-    this.keys = this.input.keyboard.addKeys('W,A,S,D,SPACE,E,I,T');
-    this.input.keyboard.on('keydown-E', ()=>{
-      if(dist(this.player,this.market)<120) openShop();
-      else if(dist(this.player,this.cafe)<120) this.scene.start('barista');
-      else if(dist(this.player,this.home)<120) this.scene.start('home');
-      else if(dist(this.player,this.bus)<120) openBus(this);
-    });
-    this.input.keyboard.on('keydown-I', openInventory);
-    this.input.keyboard.on('keydown-T', openPhone);
+  // desired horizontal dir (camera aligned)
+  const forward = new THREE.Vector3();
+  camera.getWorldDirection(forward); forward.y = 0; forward.normalize();
+  const right = new THREE.Vector3().crossVectors(forward, new THREE.Vector3(0,1,0)).multiplyScalar(-1);
 
-    // simple NPC walkers
-    this.npcs = this.add.group();
-    for(let i=0;i<10;i++){
-      const n = this.physics.add.image(100+Math.random()*800, 200+Math.random()*220, 'npc');
-      n.vx = (Math.random()<.5?-1:1)*(40+Math.random()*60);
-      n.vy = (Math.random()<.5?-1:1)*(40+Math.random()*60);
-      this.npcs.add(n);
+  let wish = new THREE.Vector3();
+  if(input.left)  wish.addScaledVector(right, -1);
+  if(input.right) wish.addScaledVector(right,  1);
+  if(input.up)    wish.addScaledVector(forward,1);
+  if(input.down)  wish.addScaledVector(forward,-1);
+  if(wish.lengthSq()>0) wish.normalize();
+
+  // acceleration & damping
+  const targetVel = wish.multiplyScalar(SPEED);
+  vel.x = THREE.MathUtils.damp(vel.x, targetVel.x, 10, dt);
+  vel.z = THREE.MathUtils.damp(vel.z, targetVel.z, 10, dt);
+
+  // gravity
+  vel.y += GRAV * dt;
+
+  // simple sweep: try move in steps; collide with boxes
+  const nextPos = player.position.clone().addScaledVector(vel, dt);
+  grounded = false; onPlatform = null;
+
+  // collide per axis against level meshes
+  collideAxis('x', nextPos, dt);
+  collideAxis('y', nextPos, dt);
+  collideAxis('z', nextPos, dt);
+
+  player.position.copy(nextPos);
+
+  // jump
+  if(input.jump && grounded){
+    vel.y = JUMP; grounded = false; input.jump = false; beep(700,0.06,'square',0.06);
+  }else{
+    input.jump = false;
+  }
+
+  // if on moving platform, move with it
+  if(onPlatform){
+    nextPos.add(onPlatform.position.clone().sub(onPlatform.userData.prev||onPlatform.position));
+  }
+  for(const p of movingPlatforms){ p.userData.prev = p.position.clone(); }
+
+  // coins & goal
+  for(const c of coins){
+    if(!c.visible) continue;
+    if(player.position.distanceTo(c.position) < 0.7){
+      c.visible = false; collected++; hud.coins.textContent = `${collected}`;
+      beep(880,0.06,'triangle',0.08);
     }
   }
-  update(){
-    movePlayer(this, 260); tickTime(this);
-    this.npcs.children.iterate(n=>{
-      if(!n) return;
-      n.setVelocity(n.vx, n.vy);
-      if(n.x<40||n.x>CONFIG.w-40) n.vx*=-1;
-      if(n.y<200||n.y>520) n.vy*=-1;
-    });
+  const goal = level.children.find(o=>o.userData && o.userData.type==='goal');
+  if(goal && player.position.distanceTo(goal.position) < 1.5 && collected>=8){
+    win = true; running=false; hud.msg.textContent='Bravo! Pobedila si! (R za restart)'; beep(520,0.2,'sawtooth',0.08);
   }
-}
-class SceneDistrict extends Phaser.Scene {
-  constructor(key, label) { super(key); this.label = label; }
-  preload(){
-    const g = this.make.graphics({x:0,y:0,add:false});
-    g.fillStyle(state.color,1).fillCircle(12,12,12); g.generateTexture('player',24,24); g.clear();
-    g.fillStyle(0x2f354d,1).fillRect(0,0,240,120); g.generateTexture('block',240,120); g.clear();
-    g.fillStyle(0x66d9aa,1).fillRect(0,0,160,50); g.generateTexture('bus',160,50); g.clear();
-    g.fillStyle(0xeeeeee,1).fillCircle(8,8,8); g.generateTexture('npc',16,16); g.clear();
-  }
-  create(){
-    setDaylight(this);
-    hudSet(this.label);
-    this.add.text(12,8,this.label,{font:'16px monospace', fill:'#cfe3ff'});
-    this.add.rectangle(0,0,CONFIG.w,CONFIG.h,0x10131c).setOrigin(0);
 
-    this.bus = this.add.image(860, 400, 'bus');
-    this.add.text(820, 428, 'GSP nazad', {font:'13px monospace', fill:'#c6ffe4'});
+  // time
+  timeLeft -= dt;
+  hud.time.textContent = Math.max(0, timeLeft).toFixed(1);
+  if(timeLeft<=0 && !win){ running=false; lose=true; hud.msg.textContent='Vreme isteklo! (R za restart)'; beep(180,0.3,'sine',0.07); }
 
-    // NPCs
-    this.npcs = this.add.group();
-    for(let i=0;i<12;i++){
-      const n = this.physics.add.image(100+Math.random()*800, 150+Math.random()*300, 'npc');
-      n.vx = (Math.random()<.5?-1:1)*(40+Math.random()*60);
-      n.vy = (Math.random()<.5?-1:1)*(40+Math.random()*60);
-      this.npcs.add(n);
-    }
+  // fall off
+  if(player.position.y < -8 && !win){ running=false; lose=true; hud.msg.textContent='Pao/la si! (R za restart)'; beep(220,0.25,'sine',0.07); }
 
-    this.player = this.physics.add.image(100,460,'player').setCollideWorldBounds(true);
-    this.keys = this.input.keyboard.addKeys('W,A,S,D,SPACE,E,I,T');
-    this.input.keyboard.on('keydown-E', ()=>{
-      if(dist(this.player,this.bus)<100) this.scene.start('street');
-    });
-    this.input.keyboard.on('keydown-I', openInventory);
-    this.input.keyboard.on('keydown-T', openPhone);
-  }
-  update(){
-    movePlayer(this, 250); tickTime(this);
-    this.npcs.children.iterate(n=>{
-      n.setVelocity(n.vx, n.vy);
-      if(n.x<40||n.x>CONFIG.w-40) n.vx*=-1;
-      if(n.y<150||n.y>520) n.vy*=-1;
-    });
-  }
+  // camera follow
+  const targetCam = player.position.clone().add(camera.userData.offset);
+  camera.position.lerp(targetCam, 1 - Math.pow(0.001, dt));
+  camera.lookAt(player.position.x, player.position.y+1.0, player.position.z);
+
+  renderer.render(scene, camera);
+  requestAnimationFrame(animate);
 }
 
-class SceneBarista extends Phaser.Scene{
-  constructor(){ super('barista'); }
-  create(){
-    hudSet('Starbrews — Smena');
-    document.getElementById('overlay').classList.remove('hidden');
-    baristaUI.classList.remove('hidden');
-    startOrder();
-    quitBarista.onclick = ()=>{
-      baristaUI.classList.add('hidden');
-      this.scene.start('street');
-    };
-  }
-  update(){ tickTime(this); }
-}
+function collideAxis(axis, nextPos, dt){
+  // test all boxes (platform/danger/moving)
+  const size = 0.35; // capsule radius approx -> treat as AABB
+  for(const m of level.children){
+    if(!m.userData) continue;
+    if(m.userData.type!=='platform' && m.userData.type!=='moving' && m.userData.type!=='danger') continue;
+    const s = m.userData.size || new THREE.Vector3(1,1,1);
+    const min = new THREE.Vector3().copy(m.position).addScaledVector(s, -0.5);
+    const max = new THREE.Vector3().copy(m.position).addScaledVector(s,  0.5);
+    // expand by player radius
+    min.addScalar(-size); max.addScalar(size);
 
-// helper functions
-function dist(a,b){ return Phaser.Math.Distance.Between(a.x,a.y,b.x,b.y); }
-function movePlayer(scene, speed){
-  const k = scene.keys;
-  let vx=0, vy=0;
-  if(k.W.isDown) vy=-1;
-  if(k.S.isDown) vy=1;
-  if(k.A.isDown) vx=-1;
-  if(k.D.isDown) vx=1;
-  const spd = (k.SPACE.isDown?1.6:1)*speed;
-  scene.player.setVelocity(vx*spd, vy*spd);
-}
-function tickTime(scene){
-  state.minute += 1;
-  if(state.minute>=60){ state.minute=0; state.hour+=1; }
-  if(state.hour>=24){ state.hour=0; state.day+=1; }
-  hudHour.textContent = `${String(state.hour).padStart(2,'0')}:${String(state.minute).padStart(2,'0')}`;
-}
-function hudSet(loc){
-  state.location = loc;
-  hudLoc.textContent = loc;
-  hudEnergy.textContent = state.energy;
-  hudNeeds.textContent = state.need;
-  hudCash.textContent = state.cash;
-  hudBags.textContent = state.bagsKg.toFixed(1);
-  hudDay.textContent = state.day;
-  hudHour.textContent = `${String(state.hour).padStart(2,'0')}:${String(state.minute).padStart(2,'0')}`;
-}
-function setDaylight(scene){
-  const tint = (state.hour>=20||state.hour<6)?0x0a0b12:CONFIG.bg;
-  scene.cameras.main.setBackgroundColor(tint);
-}
-function sleepAction(scene){
-  state.energy = 100;
-  scene.add.text(400,280,'Spavanje...',{font:'18px monospace', fill:'#fff'}).setDepth(10).setScrollFactor(0);
-}
-function eatAction(scene){
-  if(state.fridge.length>0){
-    state.need = Math.max(0,state.need-20);
-    state.fridge.pop();
-  }
-}
-function wardrobeAction(scene){
-  state.color = Math.random()*0xffffff;
-  scene.textures.remove('player');
-  const g = scene.make.graphics({x:0,y:0,add:false});
-  g.fillStyle(state.color,1).fillCircle(12,12,12); g.generateTexture('player',24,24);
-}
-function openShop(){
-  shopUI.classList.remove('hidden');
-  shopList.innerHTML = '';
-  CATALOG.forEach(it=>{
-    const row = document.createElement('div'); row.textContent = it.name;
-    const kg = document.createElement('div'); kg.textContent = `${it.kg}kg`;
-    const pr = document.createElement('div'); pr.textContent = `${it.price} RSD`;
-    shopList.append(row,kg,pr);
-  });
-  cashLabel.textContent = state.cash;
-}
-function openInventory(){
-  invUI.classList.remove('hidden');
-  invList.innerHTML='';
-  state.bagItems.forEach(it=>{
-    const row = document.createElement('div'); row.textContent = it.name;
-    const kg = document.createElement('div'); kg.textContent = `${it.kg}kg`;
-    const pr = document.createElement('div'); pr.textContent = `${it.price} RSD`;
-    invList.append(row,kg,pr);
-  });
-  bagsLabel.textContent = `${state.bagsKg}kg`;
-}
-function openPhone(){
-  phoneUI.classList.remove('hidden');
-  renderTasks();
-}
-function openBus(scene){
-  const lines = [
-    {label:'Eko1 → Dorćol', goto:'dorcol'},
-    {label:'31 → Vračar', goto:'vracar'},
-    {label:'23 → Ada', goto:'ada'},
-    {label:'33 → Dedinje', goto:'home'}
-  ];
-  const pick = prompt('Linije:\n' + lines.map((l,i)=>`${i+1}) ${l.label}`).join('\n'));
-  const num = parseInt(pick);
-  if(num>=1 && num<=lines.length){
-    scene.scene.start(lines[num-1].goto);
-  }
-}
-function renderTasks(){
-  taskList.innerHTML='';
-  TASKS.forEach((t,i)=>{
-    const li = document.createElement('li');
-    li.textContent = (t.done?'✔ ':'☐ ') + t.text;
-    taskList.appendChild(li);
-  });
-}
-function startOrder(){
-  const steps = ['espresso','mleko','preliv'];
-  let stepIndex = 0;
-  orderText.textContent = 'Porudžbina: ' + steps.join(' → ');
-  document.querySelectorAll('#baristaUI button.mini').forEach(btn=>{
-    btn.onclick=()=>{
-      if(btn.dataset.step===steps[stepIndex]){
-        stepIndex++;
-        if(stepIndex===steps.length){
-          baristaMsg.textContent = 'Kafa poslužena!';
-          state.cash += 250;
-          hudCash.textContent = state.cash;
-          stepIndex=0;
-        }
-      } else {
-        baristaMsg.textContent = 'Pogrešan korak!';
+    const p = nextPos;
+    const inside =
+      p.x >= min.x && p.x <= max.x &&
+      p.y >= min.y && p.y <= max.y &&
+      p.z >= min.z && p.z <= max.z;
+
+    if(inside){
+      if(m.userData.type==='danger'){ // instant fail (lava)
+        running=false; lose=true; hud.msg.textContent='Opekao te je pod! (R za restart)'; beep(200,0.25,'sine',0.07); return;
       }
-    };
-  });
-}
-
-window.onload = ()=>{
-  overlay = document.getElementById('overlay');
-  startBtn = document.getElementById('startBtn');
-  genderSel = document.getElementById('gender');
-  colorInput = document.getElementById('color');
-  shopUI = document.getElementById('shopUI');
-  shopList = document.getElementById('shopList');
-  cashLabel = document.getElementById('cashLabel');
-  closeShop = document.getElementById('closeShop');
-  buyBtn = document.getElementById('buyBtn');
-  invUI = document.getElementById('invUI');
-  invList = document.getElementById('invList');
-  bagsLabel = document.getElementById('bagsLabel');
-  closeInv = document.getElementById('closeInv');
-  toFridgeBtn = document.getElementById('toFridgeBtn');
-  phoneUI = document.getElementById('phoneUI');
-  taskList = document.getElementById('taskList');
-  closePhone = document.getElementById('closePhone');
-  baristaUI = document.getElementById('baristaUI');
-  orderText = document.getElementById('orderText');
-  timerFill = document.getElementById('timerFill');
-  baristaMsg = document.getElementById('baristaMsg');
-  quitBarista = document.getElementById('quitBarista');
-  hudLoc = document.getElementById('hudLoc');
-  hudEnergy = document.getElementById('hudEnergy');
-  hudNeeds = document.getElementById('hudNeeds');
-  hudCash = document.getElementById('hudCash');
-  hudBags = document.getElementById('hudBags');
-  hudDay = document.getElementById('hudDay');
-  hudHour = document.getElementById('hudHour');
-
-  startBtn.onclick=()=>{
-    state.gender = genderSel.value;
-    state.color = parseInt(colorInput.value.replace('#','0x'));
-    overlay.classList.add('hidden');
-    game.scene.start('home');
-  };
-  closeShop.onclick=()=> shopUI.classList.add('hidden');
-  buyBtn.onclick=()=>{
-    const idx = prompt('Koji broj artikla kupuješ? (0-19)');
-    const it = CATALOG[idx];
-    if(!it) return;
-    if(state.cash>=it.price && state.bagsKg+it.kg<=12){
-      state.cash-=it.price;
-      state.bagsKg+=it.kg;
-      state.bagItems.push(it);
-      hudCash.textContent = state.cash;
-      hudBags.textContent = state.bagsKg;
-      cashLabel.textContent = state.cash;
+      // push out along axis
+      if(axis==='y'){
+        // coming from top (landing)
+        if(vel.y <= 0){
+          p.y = max.y;
+          vel.y = 0;
+          grounded = true;
+          if(m.userData.type==='moving') onPlatform = m; // ride
+        }else{
+          p.y = min.y;
+          vel.y = -0.2;
+        }
+      }else if(axis==='x'){
+        if(vel.x>0) p.x = min.x; else p.x = max.x;
+        vel.x = 0;
+      }else if(axis==='z'){
+        if(vel.z>0) p.z = min.z; else p.z = max.z;
+        vel.z = 0;
+      }
     }
-  };
-  closeInv.onclick=()=> invUI.classList.add('hidden');
-  toFridgeBtn.onclick=()=>{
-    state.fridge.push(...state.bagItems);
-    state.bagItems=[];
-    state.bagsKg=0;
-    hudBags.textContent=0;
-    invUI.classList.add('hidden');
-  };
-  closePhone.onclick=()=> phoneUI.classList.add('hidden');
+  }
+}
+init();
 
-  phoneUI.querySelectorAll('.tabs button').forEach(btn=>{
-    btn.onclick=()=>{
-      phoneUI.querySelectorAll('.tabs button').forEach(b=>b.classList.remove('active'));
-      btn.classList.add('active');
-      if(btn.dataset.tab==='map'){ tabMap.classList.remove('hidden'); tabTasks.classList.add('hidden'); }
-      else { tabMap.classList.add('hidden'); tabTasks.classList.remove('hidden'); }
-    };
-  });
-
-  tabMap = document.getElementById('tabMap');
-  tabTasks = document.getElementById('tabTasks');
-
-  const config = {
-    type: Phaser.AUTO,
-    width: CONFIG.w,
-    height: CONFIG.h,
-    backgroundColor: CONFIG.bg,
-    physics: { default:'arcade', arcade:{debug:false} },
-    scene: [
-      SceneHome,
-      SceneStreet,
-      new SceneDistrict('dorcol','Dorćol'),
-      new SceneDistrict('vracar','Vračar'),
-      new SceneDistrict('ada','Ada'),
-      SceneBarista
-    ]
-  };
-  window.game = new Phaser.Game(config);
-};
 
